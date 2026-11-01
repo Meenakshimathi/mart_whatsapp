@@ -122,16 +122,28 @@ t('web entry serves separate customer and admin portal templates', () => {
     }
   );
   const formattedOrderMessage = decodeURIComponent(new URL(formattedOrderLink).searchParams.get('text'));
-  assert.match(formattedOrderMessage, /^\*◆ NEW ORDER — KAMAGERE MART\*\n\n\*Order Details\*\nOrder ID: KM0912296\nDate & Time: Oct 30, 2026 \| 10:51:52 PM/);
-  assert.match(formattedOrderMessage, /\*Customer Details\*\nName: Meenakshi G\nPhone: \+91 98402 50476\nDelivery Location: View on Google Maps\nhttps:\/\/www\.google\.com\/maps\?q=13\.077600,80\.291700\n\(13\.077600, 80\.291700\)/);
-  assert.match(formattedOrderMessage, /\*Order Items \(4\)\*\n1\. \*Sugar\*\n   Qty: 1\n   Unit Price: ₹47\.87\n   Total: ₹47\.87\n\n2\. \*Frozen Veg Momos\*\n   Qty: 1\n   Unit Price: ₹150\.00\n   Total: ₹150\.00/);
-  assert.match(formattedOrderMessage, /\*Payment Summary\*\nSubtotal: ₹392\.87\nDelivery Charge: ₹0\.00\n\*Grand Total: ₹392\.87\*\nPayment Mode: Cash on Delivery \(COD\)/);
-  assert.doesNotMatch(formattedOrderMessage, /[🛒🧾📅👤📞📍💳]/u);
-  assert.match(continuationScript, /function buildWhatsappCancellationLink\(order\)/);
-  assert.match(continuationScript, /\*Order cancelled - Kamagere Mart\*/);
-  assert.match(continuationScript, /order\.status === 'Cancelled' \? `\s*<div class="order-cancel-actions">\s*<a class="outline-btn" href="\$\{escapeHtml\(buildWhatsappCancellationLink\(order\)\)\}" target="_blank" rel="noopener">Notify admin on WhatsApp<\/a>/);
-  assert.match(continuationScript, /const cancellationLink = buildWhatsappCancellationLink\(order\);\s*if \(whatsappWindow\) whatsappWindow\.location\.href = cancellationLink;/);
-  assert.match(continuationScript, /if \(whatsappWindow\) whatsappWindow\.location\.href = waLink;/);
+  assert.match(formattedOrderMessage, /^\S+ \*KAMAGERE MART\*\n\n📦 \*NEW ORDER\*\n\n🟣 \*ORDER DETAILS\*\nOrder ID: \*KM0912296\*\nDate: 30\/10\/2026, 10:51:52 pm/u);
+  assert.match(formattedOrderMessage, /\*CUSTOMER DETAILS\*\nName: Meenakshi G\nPhone: \+91 98402 50476\nGoogle Maps: https:\/\/www\.google\.com\/maps\?q=13\.077600,80\.291700\nCoordinates: 13\.077600, 80\.291700/u);
+  assert.match(formattedOrderMessage, /\*ORDER ITEMS \(4\)\*\n1\. \*Sugar\* \(1 kg\)\n   Qty: 1 \| Unit price: ₹47\.87 \| Line total: \*₹47\.87\*\n2\. \*Frozen Veg Momos\* \(pack\)\n   Qty: 1 \| Unit price: ₹150\.00 \| Line total: \*₹150\.00\*/u);
+  assert.match(formattedOrderMessage, /\*PAYMENT SUMMARY\*\nSubtotal: ₹392\.87\nDelivery: ₹0\.00\n\*Grand total: ₹392\.87\*\nPayment: Cash on Delivery \(COD\)/u);
+  assert.doesNotMatch(formattedOrderMessage, /^(?!   Qty: )[ \t]+/m, 'Only item detail lines should be indented');
+  const messyOrderLink = orderLinkContext.buildOrderLink(
+    { id: ' KM 0912296 ', date: ' today   ' },
+    {
+      customerName: '\n  Meenakshi\t G  ', customerPhone: '9840250476', address: 'Current location: https://maps.example.test/?q=13.1,80.2',
+      items: [{ name: '\tSugar\n   ', unit: ' 1   kg ', quantity: 1, price: 47.87 }],
+      subtotal: 47.87, delivery: 25, total: 72.87, payment: 'COD'
+    }
+  );
+  const messyOrderMessage = new URL(messyOrderLink).searchParams.get('text');
+  assert.doesNotMatch(messyOrderMessage, /^(?!   Qty: )[ \t]+/m, 'Whitespace in customer data should not indent WhatsApp lines');
+  assert.match(messyOrderMessage, /Name: Meenakshi G\n/u);
+  assert.match(messyOrderMessage, /1\. \*Sugar\* \(1 kg\)\n   Qty: 1/u);
+  assert.match(continuationScript, /showWhatsappOrderPrompt\(\{ \.\.\.order, waLink \}\);/);
+  assert.doesNotMatch(continuationScript, /setTimeout\(\(\) => \{ window\.location\.href = waLink;/);
+  assert.match(appScript, /function showWhatsappOrderPrompt\(order\)[\s\S]*?Send order list to admin WhatsApp\?[\s\S]*?Tap Send there, then return here/);
+  assert.match(appScript, /SS\.setItem\(WHATSAPP_RETURN_ORDER_KEY, JSON\.stringify\(order\)\);\s*window\.location\.href = order\.waLink;/);
+  assert.match(appScript, /window\.addEventListener\('pageshow', resumeOrderSuccessAfterWhatsapp\)/);
   assert.match(appScript, /if \(!IS_ADMIN_PORTAL &&\s*\(SS\.getItem\(LANGUAGE_PROMPT_KEY\) \|\| new URLSearchParams\(window\.location\.search\)\.has\('qadmin'\)\)\) return;/);
   assert.match(appScript, /const isAdminLink = IS_ADMIN_PORTAL \|\|\s*window\.KM_INITIAL_ROUTE === 'admin-login' \|\|\s*new URLSearchParams\(window\.location\.search\)\.has\('qadmin'\);/);
   assert.match(appScript, /IS_ADMIN_PORTAL \? '' : `[\s\S]*?class="header-cart-btn"/);
@@ -152,7 +164,7 @@ t('web entry serves separate customer and admin portal templates', () => {
   assert.match(appScript, /stockUpdateChannel\?\.addEventListener\('message'/);
   assert.match(continuationScript, /stockUpdateChannel\?\.postMessage\(\{ type: 'order-placed' \}\)/);
   assert.doesNotMatch(continuationScript, /if \(document\.hidden \|\| state\.adminStockRefreshPromise\) return;/);
-  assert.match(appScript, /window\.addEventListener\('focus', \(\) => \{\s*if \(IS_ADMIN_PORTAL && \['admin', 'orders'\]\.includes\(state\.route\)\) \{\s*refreshAdminStock\(\);/);
+  assert.match(appScript, /window\.addEventListener\('focus', \(\) => \{\s*resumeOrderSuccessAfterWhatsapp\(\);\s*if \(IS_ADMIN_PORTAL && \['admin', 'orders'\]\.includes\(state\.route\)\) \{\s*refreshAdminStock\(\);/);
   assert.match(appScript, /if \(!\['admin', 'orders'\]\.includes\(target\) && state\.adminStockTimer\)/);
   assert.match(continuationScript, /function startAdminStockPolling\(\) \{\s*if \(state\.adminStockTimer\) clearInterval\(state\.adminStockTimer\);\s*refreshAdminStock\(\);\s*state\.adminStockTimer = setInterval\(refreshAdminStock, 1000\);/);
 });

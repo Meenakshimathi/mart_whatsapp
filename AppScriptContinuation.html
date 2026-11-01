@@ -55,11 +55,6 @@ function renderOrders() {
               <span class="cancel-window" data-cancel-countdown="${escapeHtml(order.id)}"></span>
             </div>
           ` : ''}
-          ${order.status === 'Cancelled' ? `
-            <div class="order-cancel-actions">
-              <a class="outline-btn" href="${escapeHtml(buildWhatsappCancellationLink(order))}" target="_blank" rel="noopener">Notify admin on WhatsApp</a>
-            </div>
-          ` : ''}
         </div>
       `).join('')}
     </div>
@@ -450,9 +445,6 @@ async function cancelOrder(orderId) {
     return;
   }
 
-  let whatsappWindow = null;
-  try { whatsappWindow = window.open('about:blank', '_blank'); } catch (e) { /* WhatsApp link remains available in the order view */ }
-
   try {
     const response = await fetch(`${API_BASE}/api/orders/${encodeURIComponent(order.id)}/cancel`, {
       method: 'PATCH',
@@ -472,12 +464,9 @@ async function cancelOrder(orderId) {
     order.status = result.status || 'Cancelled';
     order.cancelToken = '';
     saveOrders(state.orders, state.user);
-    const cancellationLink = buildWhatsappCancellationLink(order);
-    if (whatsappWindow) whatsappWindow.location.href = cancellationLink;
     showToast('Order cancelled successfully');
     renderOrders();
   } catch (error) {
-    if (whatsappWindow && !whatsappWindow.closed) whatsappWindow.close();
     showToast(error.message || 'Unable to cancel order.');
   }
 }
@@ -1262,78 +1251,51 @@ const STORE_WHATSAPP_NUMBER = '919840250476';
 
 // Builds a https://wa.me/ link that opens WhatsApp with the whole order list typed in.
 function buildWhatsappOrderLink(order, orderPayload) {
-  const money = (n) => {
-    return new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(n || 0));
-  };
-  const items = (orderPayload.items || []).map((it, i) =>
-    `${i + 1}. *${it.name}*\n   Qty: ${it.quantity}\n   Unit Price: ₹${money(it.price)}\n   Total: ₹${money(it.price * it.quantity)}`
-  ).join('\n\n');
-  const itemCount = (orderPayload.items || []).reduce((count, item) => count + Number(item.quantity || 0), 0);
-  const rawDate = String(order.date || '');
-  const parsedDate = rawDate.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4}),\s*(\d{1,2}:\d{2}:\d{2})\s*(am|pm)$/i);
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const dateTime = parsedDate
-    ? `${months[Number(parsedDate[2]) - 1]} ${Number(parsedDate[1])}, ${parsedDate[3]} | ${parsedDate[4]} ${parsedDate[5].toUpperCase()}`
-    : (order.date || new Date().toLocaleString('en-IN'));
-  const phoneDigits = String(orderPayload.customerPhone || '').replace(/\D/g, '');
-  const phone = phoneDigits.length === 10
-    ? `+91 ${phoneDigits.slice(0, 5)} ${phoneDigits.slice(5)}`
-    : orderPayload.customerPhone;
-  const address = String(orderPayload.address || '');
-  const mapMatch = address.match(/https?:\/\/[^\s]+/);
-  const coordinates = mapMatch && mapMatch[0].match(/[?&]q=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
-  const addressText = address.replace(mapMatch ? mapMatch[0] : '', '').replace(/^Current location:\s*/i, '').trim();
+  const E = (cp) => String.fromCodePoint(cp);
+  const clean = (value) => String(value ?? '').replace(/\s+/g, ' ').trim();
+  const inr = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const ph = String(orderPayload.customerPhone || '').replace(/\D/g, '').slice(-10);
+  const phone = ph.length === 10 ? `+91 ${ph.slice(0, 5)} ${ph.slice(5)}` : String(orderPayload.customerPhone || '');
+  const address = String(orderPayload.address || '').trim();
+  const mapMatch = address.match(/https?:\/\/\S+/);
+  const coord = mapMatch && mapMatch[0].match(/[?&]q=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+  const addressText = clean(address.replace(mapMatch ? mapMatch[0] : '', '').replace(/^Current location:\s*/i, ''));
   const locationLines = mapMatch
-    ? [`Delivery Location: View on Google Maps`, mapMatch[0], coordinates ? `(${coordinates[1]}, ${coordinates[2]})` : '', ...(addressText ? [`Address: ${addressText}`] : '')]
-    : [`Delivery Location: ${address}`];
+    ? [
+      ...(addressText ? [`Delivery location: ${addressText}`] : []),
+      `Google Maps: ${mapMatch[0]}`,
+      ...(coord ? [`Coordinates: ${coord[1]}, ${coord[2]}`] : [])
+    ]
+    : [`Delivery location: ${clean(address)}`];
+  const orderItems = orderPayload.items || [];
+  const items = orderItems.map((it, i) =>
+    `${i + 1}. *${clean(it.name)}*${clean(it.unit) ? ` (${clean(it.unit)})` : ''}\n   Qty: ${clean(it.quantity)} | Unit price: ${inr(it.price)} | Line total: *${inr(it.price * it.quantity)}*`
+  ).join('\n');
+  const P = E(0x1F7E3);
   const lines = [
-    '*◆ NEW ORDER — KAMAGERE MART*',
+    `${E(0x1F6CD)}\uFE0F *KAMAGERE MART*`,
     '',
-    '*Order Details*',
-    `Order ID: ${order.id}`,
-    `Date & Time: ${dateTime}`,
+    `${E(0x1F4E6)} *NEW ORDER*`,
     '',
-    '*Customer Details*',
-    `Name: ${orderPayload.customerName}`,
-    `Phone: ${phone}`,
+    `${P} *ORDER DETAILS*`,
+    `Order ID: *${clean(order.id)}*`,
+    `Date: ${clean(order.date || new Date().toLocaleString('en-IN'))}`,
+    '',
+    `${P} *CUSTOMER DETAILS*`,
+    `Name: ${clean(orderPayload.customerName)}`,
+    `Phone: ${clean(phone)}`,
     ...locationLines,
     '',
-    `*Order Items (${itemCount})*`,
+    `${P} *ORDER ITEMS (${orderItems.length})*`,
     items,
     '',
-    '*Payment Summary*',
-    `Subtotal: ₹${money(orderPayload.subtotal)}`,
-    `Delivery Charge: ₹${money(orderPayload.delivery)}`,
-    `*Grand Total: ₹${money(orderPayload.total)}*`,
-    `Payment Mode: ${orderPayload.payment === 'UPI' ? 'UPI' : 'Cash on Delivery (COD)'}`
+    `${P} *PAYMENT SUMMARY*`,
+    `Subtotal: ${inr(orderPayload.subtotal)}`,
+    `Delivery: ${inr(orderPayload.delivery)}`,
+    `*Grand total: ${inr(orderPayload.total)}*`,
+    `Payment: ${orderPayload.payment === 'UPI' ? 'UPI' : 'Cash on Delivery (COD)'}`
   ];
-  return `https://wa.me/${STORE_WHATSAPP_NUMBER}?text=${encodeURIComponent(lines.join('\n'))}`;
-}
 
-function buildWhatsappCancellationLink(order) {
-  const money = (n) => {
-    const v = Math.round(Number(n || 0) * 100) / 100;
-    return v === Math.floor(v) ? String(v) : v.toFixed(2);
-  };
-  const items = (order.items || []).map((it, i) =>
-    `${i + 1}. ${it.name} (${it.unit}) x ${it.quantity} = Rs.${money(it.price * it.quantity)}`
-  ).join('\n');
-  const lines = [
-    '*Order cancelled - Kamagere Mart*',
-    `Order ID: ${order.id}`,
-    `Date: ${order.date || new Date().toLocaleString('en-IN')}`,
-    '',
-    '*Customer*',
-    `Name: ${order.customerName || ''}`,
-    `Phone: ${order.customerPhone || ''}`,
-    `Address: ${order.address || ''}`,
-    '',
-    '*Items*',
-    items,
-    '',
-    `*Total: Rs.${money(order.total)}*`,
-    'Status: Cancelled'
-  ];
   return `https://wa.me/${STORE_WHATSAPP_NUMBER}?text=${encodeURIComponent(lines.join('\n'))}`;
 }
 
@@ -1394,9 +1356,6 @@ async function handleCheckout(form) {
   };
   const customerToken = getCustomerToken();
 
-  let whatsappWindow = null;
-  try { whatsappWindow = window.open('about:blank', '_blank'); } catch (e) { /* success screen link is the fallback */ }
-
   try {
     const response = await fetch(`${API_BASE}/api/orders`, {
       method: 'POST',
@@ -1443,11 +1402,9 @@ async function handleCheckout(form) {
     LS.setItem(STOCK_REFRESH_KEY, `${Date.now()}-${Math.random()}`);
     stockUpdateChannel?.postMessage({ type: 'order-placed' });
     const waLink = buildWhatsappOrderLink(order, orderPayload);
-    showOrderSuccess({ ...order, waLink });
-    if (whatsappWindow) whatsappWindow.location.href = waLink;
+    showWhatsappOrderPrompt({ ...order, waLink });
     loadProducts();
   } catch (error) {
-    if (whatsappWindow && !whatsappWindow.closed) whatsappWindow.close();
     showToast(error.message || 'Order placement failed');
     // Stock may have changed since the page loaded; refresh the counts
     loadProducts();

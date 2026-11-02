@@ -44,6 +44,10 @@ function createContext(store = {}) {
     },
     LockService: { getScriptLock: () => ({ waitLock() { if (store.locked) throw new Error('lock busy'); store.locked = true; }, releaseLock() { store.locked = false; } }) },
     LanguageApp: { translate: (t, a, b) => 'KN[' + t + ']' },
+    Session: {
+      getEffectiveUser: () => ({ getEmail: () => store.effectiveEmail || '' }),
+      getActiveUser: () => ({ getEmail: () => store.activeEmail || '' })
+    },
     UrlFetchApp: { fetch: () => ({ getResponseCode: () => 400, getContentText: () => '{}' }) },
     MailApp: {
       getRemainingDailyQuota: () => {
@@ -57,7 +61,10 @@ function createContext(store = {}) {
       }
     },
     GmailApp: {
-      getAliases: () => store.gmailAliases || ['kamageremart04@gmail.com'],
+      getAliases: () => {
+        if (store.gmailAliasError) throw new Error(store.gmailAliasError);
+        return store.gmailAliases || ['kamageremart04@gmail.com'];
+      },
       sendEmail: (to, subject, body, options) => {
         if (store.mailError) throw new Error(store.mailError);
         store.sentEmails = store.sentEmails || [];

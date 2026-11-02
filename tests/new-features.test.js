@@ -273,18 +273,56 @@ t('email quota authorization failures return an actionable response instead of a
     name: 'Asha', email: 'asha@example.com', phone: '9876543218', password: 'Str0ng@Pass'
   });
   assert.equal(response.status, 503);
-  assert.match(response.body.message, /authorize this sender/i);
+  assert.match(response.body.message, /authorize Gmail access/i);
   assert.equal(vm.runInContext("readTable_('PendingRegistrations').rows.length", b), 0);
 });
-t('registration requires the requested sender to be a verified Gmail alias', () => {
+t('registration rejects delivery when the configured sender is not the deployment account or an authorized alias', () => {
   const b = boot({});
   b.__store.gmailAliases = [];
   const response = b.call('POST', '/api/register', {
     name: 'Asha', email: 'asha@example.com', phone: '9876543218', password: 'Str0ng@Pass'
   });
   assert.equal(response.status, 503);
-  assert.match(response.body.message, /kamageremart04@gmail\.com/i);
+  assert.match(response.body.message, /must run as kamageremart04@gmail\.com/i);
   assert.equal((b.__store.sentEmails || []).length, 0);
+  assert.equal(vm.runInContext("readTable_('PendingRegistrations').rows.length", b), 0);
+});
+t('registration works from the configured primary Gmail account without querying alias settings', () => {
+  const b = boot({});
+  b.__store.effectiveEmail = 'kamageremart04@gmail.com';
+  b.__store.gmailAliasError = 'Gmail settings scope not yet authorized';
+  const response = b.call('POST', '/api/register', {
+    name: 'Asha', email: 'asha@example.com', phone: '9876543218', password: 'Str0ng@Pass'
+  });
+  assert.equal(response.status, 200);
+  assert.equal(b.__store.sentEmails.length, 1);
+  assert.equal(b.__store.sentEmails[0].to, 'asha@example.com');
+});
+t('registration reports missing Gmail alias settings permission without creating a pending account', () => {
+  const b = boot({});
+  b.__store.effectiveEmail = 'deployment@example.com';
+  b.__store.gmailAliasError = 'Specified permissions are not sufficient';
+  const response = b.call('POST', '/api/register', {
+    name: 'Asha', email: 'asha@example.com', phone: '9876543218', password: 'Str0ng@Pass'
+  });
+  assert.equal(response.status, 503);
+  assert.match(response.body.message, /approve the Gmail settings permission/i);
+  assert.equal((b.__store.sentEmails || []).length, 0);
+  assert.equal(vm.runInContext("readTable_('PendingRegistrations').rows.length", b), 0);
+});
+t('email authorization test sends only when the requested sender is authorized', () => {
+  const b = boot({});
+  b.__store.effectiveEmail = 'kamageremart04@gmail.com';
+  b.__store.gmailAliasError = 'Gmail settings scope not yet authorized';
+  vm.runInContext('authorizeRegistrationEmail()', b);
+  assert.equal(b.__store.sentEmails.length, 1);
+  assert.equal(b.__store.sentEmails[0].to, 'kamageremart04@gmail.com');
+  assert.equal(b.__store.sentEmails[0].from, undefined);
+
+  const unauthorized = boot({});
+  unauthorized.__store.gmailAliases = [];
+  assert.throws(() => vm.runInContext('authorizeRegistrationEmail()', unauthorized), /must run as kamageremart04@gmail\.com/);
+  assert.equal((unauthorized.__store.sentEmails || []).length, 0);
 });
 t('expired verification codes are rejected and pending registration is removed', () => {
   const b = boot({});

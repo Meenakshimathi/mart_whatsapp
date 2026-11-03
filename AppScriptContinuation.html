@@ -1356,6 +1356,13 @@ async function handleCheckout(form) {
   };
   const customerToken = getCustomerToken();
 
+  // Open the WhatsApp tab NOW (inside the user's click) or the browser blocks it later
+  const waWindow = window.open('', '_blank');
+  if (waWindow) {
+    try { waWindow.document.write('<p style="font-family:sans-serif">Opening WhatsApp…</p>'); } catch (e) {}
+  }
+  const closeWa = () => { try { if (waWindow && !waWindow.closed) waWindow.close(); } catch (e) {} };
+
   try {
     const response = await fetch(`${API_BASE}/api/orders`, {
       method: 'POST',
@@ -1402,13 +1409,44 @@ async function handleCheckout(form) {
     LS.setItem(STOCK_REFRESH_KEY, `${Date.now()}-${Math.random()}`);
     stockUpdateChannel?.postMessage({ type: 'order-placed' });
     const waLink = buildWhatsappOrderLink(order, orderPayload);
-    showWhatsappOrderPrompt({ ...order, waLink });
+    if (waWindow && !waWindow.closed) {
+      waWindow.location.href = waLink;
+    } else {
+      window.location.href = waLink;
+    }
+    showOrderThanksPopup(order); // thank-you page appears immediately
     loadProducts();
   } catch (error) {
+    closeWa();
     showToast(error.message || 'Order placement failed');
     // Stock may have changed since the page loaded; refresh the counts
     loadProducts();
   }
+}
+
+function showOrderThanksPopup(order) {
+  document.getElementById('order-thanks-overlay')?.remove();
+  const overlay = document.createElement('div');
+  overlay.id = 'order-thanks-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:20px;max-width:380px;width:100%;padding:28px 24px;text-align:center;font-family:inherit;">
+      <div style="font-size:56px;color:#16a34a;line-height:1;">&#10004;</div>
+      <h2 style="margin:12px 0 8px;">Thanks for placing your order!</h2>
+      <span style="display:inline-block;background:#e8f7ee;color:#166534;border-radius:999px;padding:4px 12px;font-weight:600;">Order ${escapeHtml(order.id)}</span>
+      <p style="color:#666;margin:14px 0 20px;">Your order is confirmed and will reach you within 20 minutes.</p>
+      <div style="display:flex;gap:10px;">
+        <button type="button" class="outline-btn" data-thanks="orders" style="flex:1;">View orders</button>
+        <button type="button" class="primary-btn" data-thanks="home" style="flex:1;">Continue shopping</button>
+      </div>
+    </div>`;
+  overlay.addEventListener('click', (e) => {
+    const target = e.target.closest('[data-thanks]');
+    if (!target) return;
+    overlay.remove();
+    setRoute(target.dataset.thanks);
+  });
+  document.body.appendChild(overlay);
 }
 
 function useCurrentLocation() {

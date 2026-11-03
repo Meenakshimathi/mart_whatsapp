@@ -22,6 +22,7 @@ Customer registration sends a six-digit code to the submitted email. Codes expir
 
 - UPI + Cash on Delivery: see `PAYMENT_SETUP_NOTES.md` (script properties `UPI_ID`, `UPI_NAME`).
 - WhatsApp invoice after an order: see `WHATSAPP_SETUP.md` (script properties `WA_*`).
+- Placing an order saves it and clears the cart before opening a prefilled WhatsApp message in a new tab; no extra WhatsApp confirmation popup or repeat-send button is shown. The customer must still tap **Send** in WhatsApp.
 
 ## Build a local or static frontend
 
